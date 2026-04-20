@@ -1,0 +1,24 @@
+.DS_Store
+
+# Local assistant/tooling metadata
+.claude/
+.codex/
+
+# Python
+__pycache__/
+*.py[cod]
+.env
+.env.*
+
+# Runtime state
+logs/
+state/
+npm-debug.log
+
+# Swift / Xcode / SPM
+.build/
+.swiftpm/
+DerivedData/
+
+# Packaged editor artifacts
+*.vsix

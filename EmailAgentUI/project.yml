@@ -1,0 +1,14 @@
+name: EmailAgentUI
+options:
+  bundleIdPrefix: com.emailagent
+targets:
+  EmailAgentUI:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - Sources
+    settings:
+      CODE_SIGN_IDENTITY: "-"
+      CODE_SIGN_STYLE: Automatic
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
