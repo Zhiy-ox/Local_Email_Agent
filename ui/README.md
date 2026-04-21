@@ -1,43 +1,46 @@
-# Email Agent UI (React + Local API)
+# Email Agent UI — Redesign
 
-This is a local React control room with a pixel-robot assistant (Pix) talking to your local model.
+ASCII-terminal style email triage dashboard for the Local Email Agent.  
+Built with React + JetBrains Mono. Connects to `api_server.py` at `http://127.0.0.1:8000`.
 
-## Start
+## Features
 
-1. Generate digest artifacts:
+- **Action-oriented zones** — RESPOND / DECIDE / SCHEDULE / INBOX — organises emails by *what to do*, not read status
+- **Compose reply modal** — Pix drafts a reply via local LLM; edit and send via `mailto:` or copy to clipboard
+- **Apple Calendar integration** — `[→ Apple Calendar]` posts to `/api/calendar-events` (AppleScript); falls back to `.ics` download when server is offline
+- **Live backend** — auto-probes `http://127.0.0.1:8000`; gracefully degrades to mock data when offline
+- **3 themes** — `DARK.TERM` / `PAPER.TERM` / `AMBER.TERM` — switchable via Tweaks panel
+- **Pix chat** — talks to local LLM via `/api/chat`; falls back to Claude sandbox
+
+## Usage
 
 ```bash
-cd "/Users/xuzhiyu/Documents/Codex_/Email_AI_agent /ai_email_agent_Codex"
-python3 agent_mail_calendar.py
+# Start the backend
+python api_server.py
+
+# Open the UI (served by the backend)
+open http://127.0.0.1:8000/ui/
 ```
 
-2. Start local API + static server (single process):
+Or open `email-agent/Email Agent (Standalone).html` directly in any browser — no server required (uses mock data + Claude sandbox for Pix).
 
-```bash
-cd "/Users/xuzhiyu/Documents/Codex_/Email_AI_agent /ai_email_agent_Codex"
-python3 api_server.py
+## File structure
+
+```
+email-agent/
+  Email Agent.html          ← entry point (loads the files below)
+  data.js                   ← mock data, themes, API client, ICS generator
+  components.jsx            ← all React components
+  app.jsx                   ← main App, zone layout, state
+  Email Agent (Standalone).html  ← self-contained offline bundle
 ```
 
-3. Open:
+## API endpoints used
 
-- `http://127.0.0.1:8000/ui/`
-
-## Implemented features
-
-- Digest API (`GET /api/digest`) using `latest_digest.json` with text fallback
-- Local model chat (`POST /api/chat`) shown as pixel robot assistant
-- Calendar safety guardrails (required fields, confidence, datetime sanity, conflict check)
-- Calendar conflict detector (`POST /api/calendar-conflicts`)
-- Calendar create endpoint (`POST /api/calendar-events`)
-- Review workflow (queue + batch approve/reject + CSV audit export)
-- Time refinement endpoint (`POST /api/refine-event-time`)
-- Importance explanation endpoint (`POST /api/importance-explain`)
-- Snooze endpoint (`POST /api/snooze`)
-- Todo endpoint (`GET/POST /api/todos`)
-- Daily/weekly analytics (`GET /api/analytics`)
-
-## Notes
-
-- Pix chat and refinement rely on your local OpenAI-compatible model endpoint at:
-  - `http://127.0.0.1:8080/v1/chat/completions`
-- Calendar actions use Apple Calendar via AppleScript in `scripts/create_event.applescript`.
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/digest` | Load emails |
+| POST | `/api/chat` | Pix chat (local LLM) |
+| POST | `/api/calendar-events` | Create Apple Calendar event via AppleScript |
+| POST | `/api/refine-event-time` | Ask LLM to refine event datetime |
+| POST | `/api/snooze` | Snooze an email |
