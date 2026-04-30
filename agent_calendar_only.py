@@ -2,10 +2,9 @@ import json
 import subprocess
 from datetime import datetime
 from pathlib import Path
-import requests
 
-LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
-MODEL = "local"
+from llm_client import get_llm_client
+
 TIMEZONE = "Europe/London"
 
 CONF_THRESHOLD = 0.85  # 门控阈值：低于此值不自动写入日历
@@ -49,18 +48,13 @@ def call_llama(subject: str, body: str) -> dict:
 
     user = f"Subject: {subject}\nBody: {body}"
 
-    payload = {
-        "model": MODEL,
-        "temperature": 0.1,
-        "messages": [
+    content = get_llm_client().chat(
+        [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-    }
-
-    r = requests.post(LLAMA_URL, json=payload, timeout=120)
-    r.raise_for_status()
-    content = r.json()["choices"][0]["message"]["content"].strip()
+        temperature=0.1,
+    ).strip()
     return json.loads(content)
 
 
