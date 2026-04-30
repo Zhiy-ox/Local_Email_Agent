@@ -1,0 +1,41 @@
+{
+  "_comment": "Copy to config.json and edit. Env vars (LLM_BACKEND, LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, LLM_TIMEOUT) override these.",
+
+  "llm": {
+    "backend": "mlx",
+    "base_url": "http://127.0.0.1:8080",
+    "model": "mlx-community/Llama-3.2-3B-Instruct-4bit",
+    "api_key": "",
+    "timeout": [10, 180]
+  },
+
+  "_examples": {
+    "ollama": {
+      "backend": "ollama",
+      "base_url": "http://127.0.0.1:11434",
+      "model": "llama3.2:3b-instruct-q4_K_M"
+    },
+    "llamacpp": {
+      "backend": "llamacpp",
+      "base_url": "http://127.0.0.1:8080",
+      "model": "local"
+    },
+    "lmstudio": {
+      "backend": "lmstudio",
+      "base_url": "http://127.0.0.1:1234",
+      "model": "local"
+    },
+    "openai": {
+      "backend": "openai",
+      "base_url": "https://api.openai.com",
+      "model": "gpt-4o-mini",
+      "api_key": "sk-..."
+    },
+    "anthropic": {
+      "backend": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "model": "claude-haiku-4-5-20251001",
+      "api_key": "sk-ant-..."
+    }
+  }
+}

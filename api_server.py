@@ -11,8 +11,8 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
-LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
-MODEL = "local"
+from llm_client import describe_config, get_llm_client
+
 TIMEZONE = "Europe/London"
 HOST = "127.0.0.1"
 PORT = 8000
@@ -33,8 +33,6 @@ AUDIT_FILE = LOGS / "review_audit.jsonl"
 
 SCRIPT_CREATE_EVENT = SCRIPTS / "create_event.applescript"
 
-HTTP_TIMEOUT = (10, 180)
-
 
 def now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -49,7 +47,7 @@ def parse_stats_line(line: str) -> dict:
     import re
 
     m = re.search(
-        r"Processed:\\s*(\\d+)\\s*\\|\\s*Created events:\\s*(\\d+)\\s*\\|\\s*Not created:\\s*(\\d+)\\s*\\|\\s*Failed:\\s*(\\d+)",
+        r"Processed:\s*(\d+)\s*\|\s*Created events:\s*(\d+)\s*\|\s*Not created:\s*(\d+)\s*\|\s*Failed:\s*(\d+)",
         line or "",
     )
     if not m:
@@ -296,10 +294,7 @@ def guardrail_check(event: dict) -> tuple[bool, str]:
 
 
 def llm_chat(messages: list[dict], temperature: float = 0.2) -> str:
-    payload = {"model": MODEL, "temperature": temperature, "messages": messages}
-    r = requests.post(LLAMA_URL, json=payload, timeout=HTTP_TIMEOUT)
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    return get_llm_client().chat(messages, temperature=temperature)
 
 
 def safe_json_load(s: str) -> dict:
@@ -496,6 +491,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/digest":
             self._send_json(load_digest())
+            return
+
+        if path == "/api/llm-config":
+            self._send_json(describe_config())
             return
 
         if path == "/api/analytics":
@@ -748,6 +747,11 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ensure_dirs()
+    cfg = describe_config()
+    print(
+        f"LLM backend: {cfg['backend']}  base_url={cfg['base_url']}  "
+        f"model={cfg['model']}  api_key_set={cfg['api_key_set']}"
+    )
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Serving Email Agent local server on http://{HOST}:{PORT}")
     server.serve_forever()

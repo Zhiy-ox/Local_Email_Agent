@@ -8,14 +8,11 @@ from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-import requests
+from llm_client import get_llm_client
 
 # =========================
 # Config
 # =========================
-LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
-MODEL = "local"
-
 TIMEZONE_TARGET = "Europe/London"
 CONF_THRESHOLD = 0.85
 
@@ -51,9 +48,6 @@ DIGEST_FILE = LOGS / "latest_digest.txt"
 DIGEST_JSON_FILE = LOGS / "latest_digest.json"
 HISTORY_FILE = LOGS / "digest_history.jsonl"
 LOG_FILE = LOGS / "agent.log"
-
-# Request timeouts: (connect_timeout, read_timeout)
-HTTP_TIMEOUT = (10, 180)
 
 
 # =========================
@@ -513,10 +507,7 @@ Task:
 # LLM calls
 # =========================
 def llm_chat(messages: list[dict], temperature: float = 0.1) -> str:
-    payload = {"model": MODEL, "temperature": temperature, "messages": messages}
-    r = requests.post(LLAMA_URL, json=payload, timeout=HTTP_TIMEOUT)
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    return get_llm_client().chat(messages, temperature=temperature)
 
 
 def repair_json_with_llm(bad_text: str, error_msg: str) -> dict:
