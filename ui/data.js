@@ -58,7 +58,12 @@ const THEMES = {
 
 // ── API client — tries local server, falls back to mock ───────────────────
 
-const API_BASE = 'http://127.0.0.1:8000';
+// Same-origin when served by api_server (works in Docker and native alike);
+// falls back to the default local port when opened directly as a file://.
+const API_BASE =
+  (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http'))
+    ? window.location.origin
+    : 'http://127.0.0.1:8000';
 let _serverOnline = null; // null = unknown, true/false = cached
 
 const api = {

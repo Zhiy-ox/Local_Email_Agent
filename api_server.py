@@ -1,7 +1,9 @@
 import csv
 import json
 import os
+import shutil
 import subprocess
+import sys
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,8 +16,10 @@ import requests
 from llm_client import describe_config, get_llm_client
 
 TIMEZONE = "Europe/London"
-HOST = "127.0.0.1"
-PORT = 8000
+# BIND_HOST defaults to loopback for native runs; the container sets 0.0.0.0
+# so the server is reachable through the published port.
+HOST = os.getenv("BIND_HOST", "127.0.0.1")
+PORT = int(os.getenv("PORT", "8000"))
 
 BASE = Path(__file__).resolve().parent
 SCRIPTS = BASE / "scripts"
@@ -41,6 +45,11 @@ def now_str() -> str:
 def ensure_dirs() -> None:
     LOGS.mkdir(parents=True, exist_ok=True)
     STATE.mkdir(parents=True, exist_ok=True)
+
+
+def applescript_available() -> bool:
+    """True only on a macOS host with osascript — never inside the Linux container."""
+    return sys.platform == "darwin" and shutil.which("osascript") is not None
 
 
 def parse_stats_line(line: str) -> dict:
@@ -610,6 +619,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/calendar-conflicts":
+                if not applescript_available():
+                    self._send_json(
+                        {"ok": False, "reason": "calendar integration requires a macOS host (osascript unavailable here)"},
+                        status=HTTPStatus.NOT_IMPLEMENTED,
+                    )
+                    return
                 payload = self._read_json()
                 event = payload.get("event", {})
                 conflicts = get_calendar_conflicts(event)
@@ -617,6 +632,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/calendar-events":
+                if not applescript_available():
+                    self._send_json(
+                        {"ok": False, "reason": "calendar integration requires a macOS host (osascript unavailable here); the UI falls back to .ics"},
+                        status=HTTPStatus.NOT_IMPLEMENTED,
+                    )
+                    return
                 payload = self._read_json()
                 event = payload.get("event", payload)
                 ok, reason = guardrail_check(event)
@@ -751,6 +772,10 @@ def main():
     print(
         f"LLM backend: {cfg['backend']}  base_url={cfg['base_url']}  "
         f"model={cfg['model']}  api_key_set={cfg['api_key_set']}"
+    )
+    print(
+        "AppleScript calendar/mail: "
+        + ("available" if applescript_available() else "unavailable (non-macOS host; calendar uses .ics fallback)")
     )
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Serving Email Agent local server on http://{HOST}:{PORT}")

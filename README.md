@@ -61,6 +61,39 @@ LLM_BACKEND=anthropic LLM_API_KEY=sk-ant-... \
 `GET /api/llm-config` returns the active backend (without the API key) for
 debugging.
 
+## Run via Docker
+
+Docker packages the **web layer only** (`api_server.py` + the `ui/` web app).
+MLX and the macOS Mail/Calendar integration stay native on the host — a Linux
+container can't access Apple Silicon's Metal GPU or `Mail.app`/`Calendar.app`.
+
+```bash
+# 1. Host (native): start MLX with Metal/GPU
+python -m mlx_lm.server --model mlx-community/Llama-3.2-3B-Instruct-4bit --port 8080
+
+# 2. (Optional, macOS) populate the digest from Mail.app
+python3 agent_mail_calendar.py
+
+# 3. Launch the webpage in Docker
+docker compose up --build
+# → open http://localhost:8000
+```
+
+How it fits together:
+
+- The container binds `0.0.0.0:8000` and is published to `localhost:8000`.
+- It reaches the host's MLX server via `host.docker.internal:8080`
+  (`LLM_BASE_URL` in `docker-compose.yml`).
+- `./logs` and `./state` are mounted, so the native worker's
+  `latest_digest.json` shows up in the UI and todos/audit persist.
+- Calendar **writes** need AppleScript, so inside the container
+  `POST /api/calendar-events` returns `501` and the UI falls back to an `.ics`
+  download. For real Calendar writes, run `python3 api_server.py` natively on
+  the Mac instead of (or alongside) the container.
+
+To use a cloud backend instead of host MLX, set `LLM_BACKEND`/`LLM_MODEL`/
+`LLM_API_KEY` in `docker-compose.yml` (examples are in the file).
+
 ## What the agent does (macOS only)
 
 `agent_mail_calendar.py` is the background worker:
