@@ -16,10 +16,8 @@ import requests
 from llm_client import describe_config, get_llm_client
 
 TIMEZONE = "Europe/London"
-# BIND_HOST defaults to loopback for native runs; the container sets 0.0.0.0
-# so the server is reachable through the published port.
-HOST = os.getenv("BIND_HOST", "127.0.0.1")
-PORT = int(os.getenv("PORT", "8000"))
+HOST = "127.0.0.1"
+PORT = 8000
 
 BASE = Path(__file__).resolve().parent
 SCRIPTS = BASE / "scripts"
