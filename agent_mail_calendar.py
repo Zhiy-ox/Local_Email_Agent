@@ -16,10 +16,6 @@ from llm_client import get_llm_client
 TIMEZONE_TARGET = "Europe/London"
 CONF_THRESHOLD = 0.85
 
-# Digest email
-SEND_DIGEST_EMAIL = True
-DIGEST_TO = "wolf6966@ox.ac.uk"
-
 # Limits
 MAX_UNREAD = 10
 MAX_BODY_CHARS = 5000
@@ -36,7 +32,6 @@ elif (DEFAULT_HOME_BASE / "scripts").exists():
 else:
     BASE = REPO_BASE
 
-S_SEND = BASE / "scripts" / "send_digest.applescript"
 S_FETCH = BASE / "scripts" / "fetch_unread_mail.applescript"
 S_MARKREAD = BASE / "scripts" / "mark_read_by_id.applescript"
 S_EVENT = BASE / "scripts" / "create_event.applescript"
@@ -123,10 +118,6 @@ def run_osascript_capture(script_path: Path, *args: str) -> str:
     cmd = ["osascript", str(script_path), *args]
     out = subprocess.check_output(cmd)
     return out.decode("utf-8", errors="replace").strip()
-
-
-def send_digest_email(to_email: str, subject_line: str, body_text: str) -> None:
-    run_osascript_capture(S_SEND, to_email, subject_line, body_text)
 
 
 def fetch_unread(max_n: int) -> list[dict]:
@@ -612,7 +603,7 @@ def main():
     info("Agent start")
 
     # Basic checks (fail fast)
-    for p in (S_FETCH, S_MARKREAD, S_EVENT, S_SEND):
+    for p in (S_FETCH, S_MARKREAD, S_EVENT):
         if not p.exists():
             raise FileNotFoundError(f"Missing script: {p}")
 
@@ -645,17 +636,6 @@ def main():
             encoding="utf-8",
         )
         append_digest_history(digest_json)
-
-        if SEND_DIGEST_EMAIL:
-            info("Stage: send digest email")
-            subject = f"AI Email Digest ({now_str()} {TIMEZONE_TARGET})"
-            try:
-                send_digest_email(DIGEST_TO, subject, digest)
-                info(f"Digest emailed to: {DIGEST_TO}")
-            except Exception as e:
-                info(f"Digest email FAILED: {e}")
-                log(f"Digest email FAILED: {e}")
-
         print(digest)
         info("Agent done")
         return
@@ -776,17 +756,6 @@ def main():
     )
     append_digest_history(digest_json)
     info(f"Digest saved: {DIGEST_FILE}")
-
-    if SEND_DIGEST_EMAIL:
-        info("Stage: send digest email")
-        subject = f"AI Email Digest ({now_str()} {TIMEZONE_TARGET})"
-        try:
-            send_digest_email(DIGEST_TO, subject, digest)
-            info(f"Digest emailed to: {DIGEST_TO}")
-        except Exception as e:
-            info(f"Digest email FAILED: {e}")
-            log(f"Digest email FAILED: {e}")
-
     print(digest)
     info("Agent done")
 
