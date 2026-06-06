@@ -16,29 +16,37 @@ to view your latest digest.
 
 ## First real run (macOS, with your own email)
 
-This is the end-to-end path to a live feed of your real email.
+This is the end-to-end path to a live feed of your real email, using the
+[vMLX](https://vmlx.net/) app as the local LLM.
+
+> **Port note:** vMLX's server defaults to **port 8000** — the same port this
+> app's server uses. Two easy ways to avoid the clash; pick one.
+
+**Option A — set vMLX to port 8080 (zero config here).** In vMLX, load a model
+and set its server port to **8080**, then start it. 8080 is already this app's
+default LLM URL, so nothing else to configure:
 
 ```bash
-# 0. Python deps
 pip install -r requirements.txt
-
-# 1. Start a local LLM that serves an OpenAI-compatible API on port 8080.
-#    Use whatever you like — e.g. the vMLX app, or mlx_lm:
-#      pip install mlx-lm
-#      python -m mlx_lm.server --model mlx-community/Llama-3.2-3B-Instruct-4bit --port 8080
-#    If your server uses a different port, set LLM_BASE_URL (see below).
-
-# 2. Verify everything is wired up (LLM reachable, scripts present, Mail visible)
-python3 check_setup.py
-
-# 3. Triage your real unread mail -> writes logs/latest_digest.json
-python3 agent_mail_calendar.py
-
-# 4. Serve the UI
-python3 api_server.py
-
-# 5. Open it
+python3 check_setup.py          # confirms LLM reachable, scripts, Mail access
+python3 agent_mail_calendar.py  # triage real unread mail -> logs/latest_digest.json
+python3 api_server.py           # serve the UI
 open http://127.0.0.1:8000/ui/
+```
+
+**Option B — keep vMLX on 8000, run this app on 8001.** Point the agent at
+vMLX and move its own server off 8000. Put the LLM URL in `config.json` so both
+the worker and the server pick it up:
+
+```bash
+pip install -r requirements.txt
+cp config.example.json config.json
+#   then edit config.json -> "base_url": "http://127.0.0.1:8000"
+
+python3 check_setup.py
+python3 agent_mail_calendar.py
+PORT=8001 python3 api_server.py
+open http://127.0.0.1:8001/ui/
 ```
 
 **Permissions (first run only):** the worker controls Mail and Calendar via
@@ -49,7 +57,8 @@ Mail prompt early so you don't hit it mid-run.
 
 What the worker does on a real run:
 
-- Pulls unread mail from **all** your Mail.app accounts (school + personal).
+- Pulls unread mail from **all** your Mail.app accounts (school + personal) via
+  the unified inbox, most-recent first.
 - Sends each email to your local LLM and parses a structured result.
 - Auto-creates a **"AI Drafts"** calendar (if missing) and drops high-confidence
   events there for you to review — your other calendars are untouched.
@@ -58,20 +67,12 @@ What the worker does on a real run:
 - Marks processed emails read so the next run surfaces the next batch — flip
   `MARK_AS_READ = False` in `agent_mail_calendar.py` to disable that.
 
-Re-run step 3 anytime to refresh; hit **▶ refresh digest** in the UI to reload.
-`GET /api/health` reports whether the LLM is reachable.
+Re-run the worker anytime to refresh; hit **▶ refresh digest** in the UI to
+reload. `GET /api/health` reports whether the LLM is reachable.
 
-### Pointing at vMLX (or any non-default port)
-
-If your LLM isn't on `http://127.0.0.1:8080`, set the base URL once:
-
-```bash
-export LLM_BASE_URL=http://127.0.0.1:<port>
-python3 check_setup.py     # should now show "Local LLM reachable"
-```
-
-`check_setup.py` and the worker both refuse to run until the LLM answers, so
-you'll get a clear message instead of a stalled triage.
+> Any other OpenAI-compatible server works too (mlx_lm, Ollama, LM Studio,
+> llama.cpp). The worker and `check_setup.py` both refuse to run until the LLM
+> answers, so you get a clear message instead of a stalled triage.
 
 ## Switching LLM backend
 

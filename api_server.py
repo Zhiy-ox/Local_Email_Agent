@@ -16,8 +16,10 @@ import requests
 from llm_client import describe_config, get_llm_client, ping
 
 TIMEZONE = "Europe/London"
-HOST = "127.0.0.1"
-PORT = 8000
+# Override with env vars if 8000 clashes with your LLM server (vMLX also
+# defaults to 8000):  PORT=8001 python3 api_server.py
+HOST = os.getenv("BIND_HOST", "127.0.0.1")
+PORT = int(os.getenv("PORT", "8000"))
 
 BASE = Path(__file__).resolve().parent
 SCRIPTS = BASE / "scripts"
