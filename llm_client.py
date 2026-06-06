@@ -21,8 +21,10 @@ Defaults target an MLX (mlx-lm) server on localhost:
 
 import json
 import os
+import socket
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 
@@ -205,3 +207,20 @@ def describe_config() -> dict:
         "api_key_set": bool(cfg.get("api_key")),
         "timeout": list(cfg["timeout"]),
     }
+
+
+def ping(timeout: float = 2.0) -> tuple[bool, str]:
+    """Quick reachability check: is something listening at the configured base_url?
+
+    Does a plain TCP connect (no model call), so it returns fast and is safe to
+    run as a preflight before the worker touches Mail.
+    """
+    cfg = _resolve_config()
+    parsed = urlparse(cfg["base_url"])
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True, f"{host}:{port} reachable ({cfg['backend']})"
+    except Exception as e:
+        return False, f"cannot reach {host}:{port} — {e}"

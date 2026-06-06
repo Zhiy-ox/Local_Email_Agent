@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
-from llm_client import describe_config, get_llm_client
+from llm_client import describe_config, get_llm_client, ping
 
 TIMEZONE = "Europe/London"
 HOST = "127.0.0.1"
@@ -502,6 +502,21 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/llm-config":
             self._send_json(describe_config())
+            return
+
+        if path == "/api/health":
+            reachable, detail = ping()
+            cfg = describe_config()
+            self._send_json(
+                {
+                    "llm_reachable": reachable,
+                    "detail": detail,
+                    "backend": cfg["backend"],
+                    "base_url": cfg["base_url"],
+                    "model": cfg["model"],
+                    "applescript": applescript_available(),
+                }
+            )
             return
 
         if path == "/api/analytics":

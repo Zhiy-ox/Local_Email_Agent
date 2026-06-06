@@ -146,7 +146,7 @@ function App() {
             <span style={{ animation: 'blink 1.1s steps(2,end) infinite' }}>█</span>
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 11 }}>
-            <span style={{ color: 'var(--fg-muted)' }}>APR 21, 2026</span>
+            <span style={{ color: 'var(--fg-muted)' }}>{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}</span>
             <AsciiBtn onClick={handleRefresh} accent>
               {refreshing ? `${spinner} refreshing` : '▶ refresh digest'}
             </AsciiBtn>

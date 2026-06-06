@@ -13,11 +13,13 @@ on run argv
   set endDate to date endStr
 
   tell application "Calendar"
-    if not (exists calendar "AI Draft") then
-      error "Calendar named 'AI Draft' not found. Please create it in Calendar.app first."
+    -- Auto-create the dedicated review calendar on first use so events never
+    -- hard-fail. AI-detected events land here for you to review/move.
+    if not (exists calendar "AI Drafts") then
+      make new calendar with properties {name:"AI Drafts"}
     end if
 
-    tell calendar "AI Draft"
+    tell calendar "AI Drafts"
       make new event with properties {summary:t, start date:startDate, end date:endDate, location:loc, description:notesText}
     end tell
   end tell

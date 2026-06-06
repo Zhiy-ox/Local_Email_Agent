@@ -14,28 +14,64 @@ to view your latest digest.
 
 ---
 
-## Quick start (macOS, MLX)
+## First real run (macOS, with your own email)
+
+This is the end-to-end path to a live feed of your real email.
 
 ```bash
-# 1. Python deps
+# 0. Python deps
 pip install -r requirements.txt
 
-# 2. MLX LLM server (separate install)
-pip install mlx-lm
-python -m mlx_lm.server \
-  --model mlx-community/Llama-3.2-3B-Instruct-4bit \
-  --port 8080
+# 1. Start a local LLM that serves an OpenAI-compatible API on port 8080.
+#    Use whatever you like — e.g. the vMLX app, or mlx_lm:
+#      pip install mlx-lm
+#      python -m mlx_lm.server --model mlx-community/Llama-3.2-3B-Instruct-4bit --port 8080
+#    If your server uses a different port, set LLM_BASE_URL (see below).
 
-# 3. Start the API + UI server
+# 2. Verify everything is wired up (LLM reachable, scripts present, Mail visible)
+python3 check_setup.py
+
+# 3. Triage your real unread mail -> writes logs/latest_digest.json
+python3 agent_mail_calendar.py
+
+# 4. Serve the UI
 python3 api_server.py
 
-# 4. Open the UI
+# 5. Open it
 open http://127.0.0.1:8000/ui/
 ```
 
-You should see `LLM backend: mlx  base_url=http://127.0.0.1:8080  ...` in the
-server log. The browser UI loads against the live backend; if no digest exists
-yet it falls back to mock data.
+**Permissions (first run only):** the worker controls Mail and Calendar via
+AppleScript, so macOS will prompt for Automation access. Approve it, or set it
+manually in **System Settings → Privacy & Security → Automation** (allow your
+terminal to control **Mail** and **Calendar**). `check_setup.py` triggers the
+Mail prompt early so you don't hit it mid-run.
+
+What the worker does on a real run:
+
+- Pulls unread mail from **all** your Mail.app accounts (school + personal).
+- Sends each email to your local LLM and parses a structured result.
+- Auto-creates a **"AI Drafts"** calendar (if missing) and drops high-confidence
+  events there for you to review — your other calendars are untouched.
+- Writes `logs/latest_digest.json`, which the UI reads. (No email is sent; the
+  digest is UI-only.)
+- Marks processed emails read so the next run surfaces the next batch — flip
+  `MARK_AS_READ = False` in `agent_mail_calendar.py` to disable that.
+
+Re-run step 3 anytime to refresh; hit **▶ refresh digest** in the UI to reload.
+`GET /api/health` reports whether the LLM is reachable.
+
+### Pointing at vMLX (or any non-default port)
+
+If your LLM isn't on `http://127.0.0.1:8080`, set the base URL once:
+
+```bash
+export LLM_BASE_URL=http://127.0.0.1:<port>
+python3 check_setup.py     # should now show "Local LLM reachable"
+```
+
+`check_setup.py` and the worker both refuse to run until the LLM answers, so
+you'll get a clear message instead of a stalled triage.
 
 ## Switching LLM backend
 
@@ -65,11 +101,12 @@ debugging.
 
 `agent_mail_calendar.py` is the background worker:
 
-1. Fetches unread mail from Mail.app via AppleScript
+1. Fetches unread mail from **all** Mail.app accounts via AppleScript
 2. Sends each email to the LLM and parses a structured JSON response
-3. Optionally creates a Calendar.app event when confidence is high enough
+3. Creates a Calendar.app event in the auto-created "AI Drafts" calendar when
+   confidence is high enough
 4. Writes a digest (`logs/latest_digest.json`) the web UI then displays
-5. Optionally emails the digest to a configured address
+   (UI-only — no email is sent)
 
 Run it ad-hoc or on a schedule (e.g. via `launchd`):
 
@@ -85,6 +122,7 @@ email — useful for testing the LLM connection.
 | Path | Purpose |
 |---|---|
 | `ui/` | React/Babel-CDN web UI (no build step) |
+| `check_setup.py` | Preflight diagnostic (LLM, scripts, Mail access) |
 | `api_server.py` | Local HTTP server, JSON APIs, static UI hosting |
 | `agent_mail_calendar.py` | macOS background worker — Mail+Calendar agent |
 | `agent_calendar_only.py` | Standalone calendar-only demo |

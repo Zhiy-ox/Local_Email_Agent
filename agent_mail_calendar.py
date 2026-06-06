@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from llm_client import get_llm_client
+from llm_client import get_llm_client, ping
 
 # =========================
 # Config
@@ -16,21 +16,20 @@ from llm_client import get_llm_client
 TIMEZONE_TARGET = "Europe/London"
 CONF_THRESHOLD = 0.85
 
+# When True, processed emails are marked read in Mail.app so the next run
+# surfaces the next batch. processed_ids.json already prevents re-analysis;
+# marking read also clears them from the unread pool (bounded by MAX_UNREAD).
+# Set to False if you don't want triage to touch read state in Mail.
+MARK_AS_READ = True
+
 # Limits
 MAX_UNREAD = 10
 MAX_BODY_CHARS = 5000
 
-# Paths
-REPO_BASE = Path(__file__).resolve().parent
-DEFAULT_HOME_BASE = Path.home() / "ai_email_agent"
-ENV_BASE = os.getenv("AI_EMAIL_AGENT_BASE", "").strip()
-
-if ENV_BASE:
-    BASE = Path(ENV_BASE).expanduser()
-elif (DEFAULT_HOME_BASE / "scripts").exists():
-    BASE = DEFAULT_HOME_BASE
-else:
-    BASE = REPO_BASE
+# Paths — everything is repo-relative so the worker and api_server.py agree on
+# where the digest lives (api_server reads <repo>/logs/latest_digest.json). The
+# scripts used are always the ones in this repo, not a stale ~/ai_email_agent copy.
+BASE = Path(__file__).resolve().parent
 
 S_FETCH = BASE / "scripts" / "fetch_unread_mail.applescript"
 S_MARKREAD = BASE / "scripts" / "mark_read_by_id.applescript"
@@ -602,6 +601,19 @@ def should_create_event(params: dict) -> tuple[bool, str]:
 def main():
     info("Agent start")
 
+    # Preflight: don't touch Mail unless the local LLM is actually reachable,
+    # otherwise we'd churn through real emails (marking them read/processed)
+    # against a dead backend.
+    ok, detail = ping()
+    if not ok:
+        info(f"LLM not reachable: {detail}")
+        info(
+            "Start your local LLM (vMLX / mlx_lm.server) on the configured base_url, "
+            "or set LLM_BASE_URL. Aborting before touching Mail."
+        )
+        raise SystemExit(1)
+    info(f"LLM reachable: {detail}")
+
     # Basic checks (fail fast)
     for p in (S_FETCH, S_MARKREAD, S_EVENT):
         if not p.exists():
@@ -739,12 +751,13 @@ def main():
             stats["failed"] += 1
 
         finally:
-            info("Stage: mark email as read")
-            try:
-                mark_read(mid)
-            except Exception as e:
-                info(f"Mark read failed: {e}")
-                log(f"Mark read failed for {mid}: {e}")
+            if MARK_AS_READ:
+                info("Stage: mark email as read")
+                try:
+                    mark_read(mid)
+                except Exception as e:
+                    info(f"Mark read failed: {e}")
+                    log(f"Mark read failed for {mid}: {e}")
 
     info("Stage: build digest")
     digest = build_digest(entries, stats)
