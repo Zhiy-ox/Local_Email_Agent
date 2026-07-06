@@ -11,18 +11,39 @@ from zoneinfo import ZoneInfo
 from llm_client import get_llm_client
 
 # =========================
-# Config
+# Config (priority: env vars > config.json "agent" section > defaults)
 # =========================
-TIMEZONE_TARGET = "Europe/London"
-CONF_THRESHOLD = 0.85
+def _load_agent_config() -> dict:
+    cfg_path = Path(__file__).resolve().parent / "config.json"
+    if not cfg_path.exists():
+        return {}
+    try:
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
+        agent = data.get("agent", {}) if isinstance(data, dict) else {}
+        return agent if isinstance(agent, dict) else {}
+    except Exception:
+        return {}
 
-# Digest email
-SEND_DIGEST_EMAIL = True
-DIGEST_TO = "wolf6966@ox.ac.uk"
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+_CFG = _load_agent_config()
+
+TIMEZONE_TARGET = os.getenv("AGENT_TIMEZONE", str(_CFG.get("timezone", "Europe/London")))
+CONF_THRESHOLD = float(os.getenv("AGENT_CONF_THRESHOLD", _CFG.get("confidence_threshold", 0.85)))
+
+# Digest email (empty digest_to disables sending)
+SEND_DIGEST_EMAIL = _env_bool("AGENT_SEND_DIGEST", bool(_CFG.get("send_digest_email", True)))
+DIGEST_TO = os.getenv("AGENT_DIGEST_TO", str(_CFG.get("digest_to", "wolf6966@ox.ac.uk")))
 
 # Limits
-MAX_UNREAD = 10
-MAX_BODY_CHARS = 5000
+MAX_UNREAD = int(os.getenv("AGENT_MAX_UNREAD", _CFG.get("max_unread", 10)))
+MAX_BODY_CHARS = int(os.getenv("AGENT_MAX_BODY_CHARS", _CFG.get("max_body_chars", 5000)))
 
 # Paths
 REPO_BASE = Path(__file__).resolve().parent
@@ -646,7 +667,7 @@ def main():
         )
         append_digest_history(digest_json)
 
-        if SEND_DIGEST_EMAIL:
+        if SEND_DIGEST_EMAIL and DIGEST_TO:
             info("Stage: send digest email")
             subject = f"AI Email Digest ({now_str()} {TIMEZONE_TARGET})"
             try:
@@ -777,7 +798,7 @@ def main():
     append_digest_history(digest_json)
     info(f"Digest saved: {DIGEST_FILE}")
 
-    if SEND_DIGEST_EMAIL:
+    if SEND_DIGEST_EMAIL and DIGEST_TO:
         info("Stage: send digest email")
         subject = f"AI Email Digest ({now_str()} {TIMEZONE_TARGET})"
         try:

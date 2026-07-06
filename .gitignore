@@ -9,6 +9,10 @@ __pycache__/
 *.py[cod]
 .env
 .env.*
+.venv/
+
+# Local config (may contain API keys / personal email)
+config.json
 
 # Runtime state
 logs/

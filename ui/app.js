@@ -40,9 +40,11 @@ function App() {
   const [chatBusy,      setChatBusy]      = useState(false);
   const [lastAnimIdx,   setLastAnimIdx]   = useState(0);
   const [refreshing,    setRefreshing]    = useState(false);
+  const [agentState,    setAgentState]    = useState('idle'); // idle | running | error
   const [tweaksVisible, setTweaksVisible] = useState(false);
   const chatEndRef = useRef(null);
-  const spinner = useSpinner(refreshing || chatBusy);
+  const agentPollRef = useRef(null);
+  const spinner = useSpinner(refreshing || chatBusy || agentState === 'running');
 
   // Apply CSS theme vars
   useEffect(() => {
@@ -97,6 +99,32 @@ function App() {
     setRefreshing(false);
   };
 
+  // Run the mail-processing agent on the server, poll until it finishes,
+  // then reload the digest.
+  const handleRunAgent = async () => {
+    if (agentState === 'running') return;
+    const res = await api.post('/api/run-agent', {});
+    if (!res?.ok) {
+      setAgentState('error');
+      setTimeout(() => setAgentState('idle'), 4000);
+      return;
+    }
+    setAgentState('running');
+    const poll = async () => {
+      const st = await api.get('/api/agent-status');
+      if (st && st.running === false) {
+        setAgentState(st.exit_code === 0 ? 'idle' : 'error');
+        if (st.exit_code !== 0) setTimeout(() => setAgentState('idle'), 4000);
+        handleRefresh();
+        return;
+      }
+      agentPollRef.current = setTimeout(poll, 2500);
+    };
+    agentPollRef.current = setTimeout(poll, 2500);
+  };
+
+  useEffect(() => () => clearTimeout(agentPollRef.current), []);
+
   const handleArchive = useCallback(item => {
     setArchivedIds(prev => new Set([...prev, item.message_id]));
   }, []);
@@ -147,6 +175,12 @@ function App() {
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 11 }}>
             <span style={{ color: 'var(--fg-muted)' }}>APR 21, 2026</span>
+            <AsciiBtn onClick={handleRunAgent} disabled={!serverOnline || agentState === 'running'}
+              danger={agentState === 'error'} accent={serverOnline && agentState === 'idle'}>
+              {agentState === 'running' ? `${spinner} processing mail…`
+                : agentState === 'error' ? '✗ agent failed'
+                : '▶ run agent'}
+            </AsciiBtn>
             <AsciiBtn onClick={handleRefresh} accent>
               {refreshing ? `${spinner} refreshing` : '▶ refresh digest'}
             </AsciiBtn>

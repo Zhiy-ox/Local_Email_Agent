@@ -14,7 +14,30 @@ to view your latest digest.
 
 ---
 
-## Quick start (macOS, MLX)
+## Quick start — one click (macOS, MLX)
+
+Double-click **`start.command`** in Finder. That's it. It will:
+
+1. Create `config.json` from `config.example.json` (first run only)
+2. Create a `.venv` and install dependencies (first run only)
+3. Start the MLX server with the model from `config.json`
+   (reused if one is already running at the configured `base_url`)
+4. Start `api_server.py` and open <http://127.0.0.1:8000/ui/> in your browser
+
+Stop everything with **`stop.command`**. To also process your unread mail
+immediately on startup, run `./start.command --run-agent` from a terminal —
+or just click **`▶ run agent`** in the web UI's top bar.
+
+> First run: macOS may block the double-click (unidentified developer).
+> Right-click → Open once, or run `./start.command` from Terminal.
+> The first MLX start also downloads the model from Hugging Face.
+
+Set your model in `config.json` → `llm.model` (e.g. your Qwen 4-bit MLX
+build such as `mlx-community/Qwen3-4B-Instruct-2507-4bit`); `start.command`
+launches `mlx_lm.server` with exactly that id.
+
+<details>
+<summary>Manual start (what the script does under the hood)</summary>
 
 ```bash
 # 1. Python deps
@@ -23,7 +46,7 @@ pip install -r requirements.txt
 # 2. MLX LLM server (separate install)
 pip install mlx-lm
 python -m mlx_lm.server \
-  --model mlx-community/Llama-3.2-3B-Instruct-4bit \
+  --model mlx-community/Qwen3-4B-Instruct-2507-4bit \
   --port 8080
 
 # 3. Start the API + UI server
@@ -32,6 +55,8 @@ python3 api_server.py
 # 4. Open the UI
 open http://127.0.0.1:8000/ui/
 ```
+
+</details>
 
 You should see `LLM backend: mlx  base_url=http://127.0.0.1:8080  ...` in the
 server log. The browser UI loads against the live backend; if no digest exists
@@ -59,7 +84,8 @@ LLM_BACKEND=anthropic LLM_API_KEY=sk-ant-... \
 ```
 
 `GET /api/llm-config` returns the active backend (without the API key) for
-debugging.
+debugging. `GET /api/health` additionally probes whether the LLM server is
+reachable and reports agent-run status.
 
 ## What the agent does (macOS only)
 
@@ -71,11 +97,24 @@ debugging.
 4. Writes a digest (`logs/latest_digest.json`) the web UI then displays
 5. Optionally emails the digest to a configured address
 
-Run it ad-hoc or on a schedule (e.g. via `launchd`):
+Three ways to run it:
 
-```bash
-python3 agent_mail_calendar.py
-```
+- Click **`▶ run agent`** in the web UI (calls `POST /api/run-agent`;
+  progress via `GET /api/agent-status`, log in `logs/agent_run.log`)
+- `python3 agent_mail_calendar.py` ad-hoc from a terminal
+- On a schedule via `launchd` / cron
+
+Agent behaviour is configured in `config.json` under `"agent"` (or via
+`AGENT_*` env vars):
+
+| Key | Env var | Default | Meaning |
+|---|---|---|---|
+| `timezone` | `AGENT_TIMEZONE` | `Europe/London` | Target timezone for events |
+| `confidence_threshold` | `AGENT_CONF_THRESHOLD` | `0.85` | Min LLM confidence to auto-create an event |
+| `max_unread` | `AGENT_MAX_UNREAD` | `10` | Max unread emails per run |
+| `max_body_chars` | `AGENT_MAX_BODY_CHARS` | `5000` | Truncate email bodies beyond this |
+| `send_digest_email` | `AGENT_SEND_DIGEST` | `true` | Email the digest after each run |
+| `digest_to` | `AGENT_DIGEST_TO` | — | Digest recipient (empty disables sending) |
 
 `agent_calendar_only.py` is a smaller demo that processes a hardcoded sample
 email — useful for testing the LLM connection.
@@ -84,6 +123,8 @@ email — useful for testing the LLM connection.
 
 | Path | Purpose |
 |---|---|
+| `start.command` | One-click launcher: venv + MLX server + API server + browser |
+| `stop.command` | Stops what `start.command` started |
 | `ui/` | React/Babel-CDN web UI (no build step) |
 | `api_server.py` | Local HTTP server, JSON APIs, static UI hosting |
 | `agent_mail_calendar.py` | macOS background worker — Mail+Calendar agent |

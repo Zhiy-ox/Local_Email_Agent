@@ -1,7 +1,10 @@
 import csv
 import json
 import os
+import platform
 import subprocess
+import sys
+import threading
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,6 +35,8 @@ REVIEW_FILE = STATE / "review_queue.json"
 AUDIT_FILE = LOGS / "review_audit.jsonl"
 
 SCRIPT_CREATE_EVENT = SCRIPTS / "create_event.applescript"
+AGENT_SCRIPT = BASE / "agent_mail_calendar.py"
+AGENT_RUN_LOG = LOGS / "agent_run.log"
 
 
 def now_str() -> str:
@@ -450,6 +455,77 @@ def get_analytics() -> dict:
     }
 
 
+# =========================
+# Agent runner (background subprocess)
+# =========================
+_agent_lock = threading.Lock()
+_agent_proc: Optional[subprocess.Popen] = None
+_agent_started_at: Optional[str] = None
+
+
+def start_agent_run() -> dict:
+    global _agent_proc, _agent_started_at
+
+    if platform.system() != "Darwin":
+        return {"ok": False, "reason": "agent requires macOS (Mail.app / Calendar.app via AppleScript)"}
+
+    with _agent_lock:
+        if _agent_proc is not None and _agent_proc.poll() is None:
+            return {"ok": False, "reason": "agent already running", "started_at": _agent_started_at}
+
+        ensure_dirs()
+        log_f = AGENT_RUN_LOG.open("w", encoding="utf-8")
+        try:
+            _agent_proc = subprocess.Popen(
+                [sys.executable, str(AGENT_SCRIPT)],
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+                cwd=str(BASE),
+            )
+        finally:
+            log_f.close()
+        _agent_started_at = now_str()
+        return {"ok": True, "started_at": _agent_started_at}
+
+
+def tail_file(path: Path, n: int = 40) -> list[str]:
+    if not path.exists():
+        return []
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").splitlines()[-n:]
+    except Exception:
+        return []
+
+
+def agent_status() -> dict:
+    with _agent_lock:
+        proc = _agent_proc
+        started = _agent_started_at
+
+    if proc is None:
+        return {"running": False, "started_at": None, "exit_code": None, "log_tail": tail_file(AGENT_RUN_LOG)}
+
+    code = proc.poll()
+    return {
+        "running": code is None,
+        "started_at": started,
+        "exit_code": code,
+        "log_tail": tail_file(AGENT_RUN_LOG),
+    }
+
+
+def llm_health() -> dict:
+    cfg = describe_config()
+    reachable = None
+    if cfg["backend"] in ("mlx", "openai_compatible", "llamacpp", "ollama", "lmstudio"):
+        try:
+            r = requests.get(cfg["base_url"] + "/v1/models", timeout=(2, 3))
+            reachable = r.status_code < 500
+        except requests.RequestException:
+            reachable = False
+    return {**cfg, "reachable": reachable}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "EmailAgentLocal/1.0"
 
@@ -495,6 +571,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/llm-config":
             self._send_json(describe_config())
+            return
+
+        if path == "/api/health":
+            self._send_json({"server": "ok", "time": now_str(), "llm": llm_health(), "agent": agent_status()})
+            return
+
+        if path == "/api/agent-status":
+            self._send_json(agent_status())
             return
 
         if path == "/api/analytics":
@@ -585,6 +669,12 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
 
         try:
+            if path == "/api/run-agent":
+                out = start_agent_run()
+                status = HTTPStatus.OK if out.get("ok") else HTTPStatus.CONFLICT
+                self._send_json(out, status=status)
+                return
+
             if path == "/api/chat":
                 payload = self._read_json()
                 user_messages = payload.get("messages", [])
