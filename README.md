@@ -126,12 +126,23 @@ email — useful for testing the LLM connection.
 | `start.command` | One-click launcher: venv + MLX server + API server + browser |
 | `stop.command` | Stops what `start.command` started |
 | `ui/` | React/Babel-CDN web UI (no build step) |
+| `EmailAgentUI/` | Native macOS app (SwiftUI) — see its README |
 | `api_server.py` | Local HTTP server, JSON APIs, static UI hosting |
 | `agent_mail_calendar.py` | macOS background worker — Mail+Calendar agent |
 | `agent_calendar_only.py` | Standalone calendar-only demo |
 | `llm_client.py` | Pluggable LLM client (MLX / OpenAI-compatible / cloud) |
 | `scripts/*.applescript` | macOS Mail/Calendar automation (worker only) |
 | `config.example.json` | Example config; copy to `config.json` to use |
+
+## Native macOS app (SwiftUI)
+
+`EmailAgentUI/` is a native Mac client for the same backend. Double-click
+`EmailAgentUI/build_app.command` to compile and launch `Email Agent.app`
+(needs Xcode Command Line Tools). It has the same triage zones as the web
+UI, a Run Agent button with live progress, one-click Add to Apple Calendar,
+Pix chat, and a **Start Backend** button that runs `start.command` for you
+when the server is offline — so the app itself becomes the single click.
+See `EmailAgentUI/README.md`.
 
 ## Cross-platform note
 

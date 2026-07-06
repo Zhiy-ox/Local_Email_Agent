@@ -1,148 +1,271 @@
-import Foundation
-import Combine
 import SwiftUI
 import AppKit
 
-class AppState: ObservableObject {
-    @Published var unseenEmails: [EmailItem] = []
-    @Published var seenEmails: [EmailItem] = []
-    @Published var actionEmails: [EmailItem] = []
-    @Published var eventCandidates: [EmailItem] = []
-    
-    // Custom Drag & Drop State
-    @Published var draggingEmail: EmailItem? = nil
-    @Published var dragLocation: CGPoint = .zero
-    @Published var dragOffset: CGSize = .zero
-    @Published var zoneFrames: [DropZoneType: CGRect] = [:]
-    @Published var targetedZone: DropZoneType? = nil
-    
-    @Published var pixMessages: [(role: String, content: String)] = [
-        ("assistant", "I am Pix. Ask me about any card.")
+@MainActor
+final class AppState: ObservableObject {
+
+    // Server
+    @AppStorage("serverBaseURL") var serverBaseURL: String = "http://127.0.0.1:8000"
+    @AppStorage("repoPath") var repoPath: String = ""
+    @Published var serverOnline = false
+    @Published var llm: LLMInfo?
+
+    // Digest
+    @Published var items: [DigestItem] = []
+    @Published var stats: DigestStats?
+    @Published var archivedIDs: Set<String> = []
+    @Published var selectedID: String?
+    @Published var refreshing = false
+
+    // Agent
+    @Published var agentRunning = false
+    @Published var agentLogTail: [String] = []
+    @Published var lastAgentExitCode: Int?
+
+    // Pix chat
+    @Published var chatMessages: [ChatMessage] = [
+        ChatMessage(role: "assistant",
+                    content: "I am Pix, running locally. Select an email and ask me anything about it.")
     ]
-    
-    // Replacing loadMockData with actual API call
-    func loadData() {
-        guard let url = URL(string: "http://127.0.0.1:8000/api/digest") else { return }
-        
-        URLSession.shared.dataTask(with: url) { data, _, error in
-            if let data = data {
+    @Published var chatBusy = false
+
+    // Transient feedback
+    @Published var toast: String?
+    @Published var startingBackend = false
+
+    var api: APIClient { APIClient(baseURL: serverBaseURL) }
+
+    // MARK: - Derived collections
+
+    var visibleItems: [DigestItem] {
+        items.filter { !archivedIDs.contains($0.id) }
+    }
+
+    func items(in zone: TriageZone) -> [DigestItem] {
+        visibleItems.filter { TriageZone.classify($0) == zone }
+    }
+
+    var selectedItem: DigestItem? {
+        guard let id = selectedID else { return nil }
+        return items.first { $0.id == id }
+    }
+
+    var criticalCount: Int {
+        visibleItems.filter { $0.importanceLevel >= 3 }.count
+    }
+
+    // MARK: - Lifecycle
+
+    func bootstrap() async {
+        await refresh()
+        await refreshHealth()
+        // If a run was already in flight (started from the web UI), pick it up.
+        if agentRunning { await pollAgentUntilDone() }
+    }
+
+    func refresh() async {
+        refreshing = true
+        defer { refreshing = false }
+        serverOnline = await api.probe()
+        guard serverOnline else { return }
+        do {
+            let digest = try await api.digest()
+            items = digest.items
+            stats = digest.stats
+        } catch {
+            showToast("digest load failed: \(error.localizedDescription)")
+        }
+    }
+
+    func refreshHealth() async {
+        guard let health = try? await api.health() else { return }
+        llm = health.llm
+        if let agent = health.agent {
+            agentRunning = agent.running ?? false
+            agentLogTail = agent.logTail ?? []
+        }
+    }
+
+    // MARK: - Agent
+
+    func runAgent() async {
+        guard !agentRunning else { return }
+        do {
+            let res = try await api.runAgent()
+            guard res.ok == true else {
+                showToast(res.reason ?? "agent did not start")
+                return
+            }
+            agentRunning = true
+            await pollAgentUntilDone()
+        } catch {
+            showToast("run agent failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func pollAgentUntilDone() async {
+        while true {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard let status = try? await api.agentStatus() else { continue }
+            agentLogTail = status.logTail ?? []
+            if status.running != true {
+                agentRunning = false
+                lastAgentExitCode = status.exitCode
+                if let code = status.exitCode, code != 0 {
+                    showToast("agent finished with exit code \(code) — see log")
+                } else {
+                    showToast("mail run complete")
+                }
+                await refresh()
+                return
+            }
+        }
+    }
+
+    // MARK: - Email actions
+
+    func markDone(_ item: DigestItem) {
+        archivedIDs.insert(item.id)
+        if selectedID == item.id { selectedID = nil }
+    }
+
+    func addToCalendar(_ item: DigestItem) async {
+        guard let event = item.event else {
+            showToast("no event data on this email")
+            return
+        }
+        do {
+            let res = try await api.createCalendarEvent(item: item, event: event)
+            if res.ok == true {
+                showToast("event created in Apple Calendar")
+            } else {
+                showToast("blocked: \(res.failureMessage)")
+            }
+        } catch {
+            showToast("calendar: \(error.localizedDescription)")
+        }
+    }
+
+    func snooze(_ item: DigestItem, hours: Int) async {
+        do {
+            let res = try await api.snooze(item: item, hours: hours)
+            if let until = res.until {
+                showToast("snoozed until \(until)")
+            } else {
+                showToast("snoozed")
+            }
+            markDone(item)
+        } catch {
+            showToast("snooze failed: \(error.localizedDescription)")
+        }
+    }
+
+    func addActionItemsToTodos(_ item: DigestItem) async {
+        let titles = item.actionItems ?? []
+        guard !titles.isEmpty else { return }
+        do {
+            try await api.addTodos(titles: titles)
+            showToast("added \(titles.count) todo(s)")
+        } catch {
+            showToast("todos failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Pix chat
+
+    func sendChat(_ text: String) async {
+        let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty, !chatBusy else { return }
+        chatMessages.append(ChatMessage(role: "user", content: content))
+        chatBusy = true
+        defer { chatBusy = false }
+        do {
+            let history = Array(chatMessages.suffix(8))
+            let reply = try await api.chat(messages: history)
+            chatMessages.append(ChatMessage(role: "assistant", content: reply))
+        } catch {
+            chatMessages.append(ChatMessage(role: "assistant", content: "[error] \(error.localizedDescription)"))
+        }
+    }
+
+    func askPix(about item: DigestItem) async {
+        let prompt = """
+        Summarize and suggest the best next action:
+        Subject: \(item.subject ?? "")
+        From: \(item.sender ?? "")
+        Context: \(item.summary ?? "")
+        Action items: \((item.actionItems ?? []).joined(separator: ", "))
+        """
+        await sendChat(prompt)
+    }
+
+    // MARK: - Backend bootstrap (runs start.command from the repo)
+
+    func startBackend() async {
+        var folder = repoPath
+        if folder.isEmpty || !FileManager.default.fileExists(atPath: folder + "/start.command") {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.allowsMultipleSelection = false
+            panel.message = "Select your Local_Email_Agent folder (the one containing start.command)"
+            panel.prompt = "Use Folder"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            folder = url.path
+            repoPath = folder
+        }
+
+        let script = folder + "/start.command"
+        guard FileManager.default.fileExists(atPath: script) else {
+            showToast("start.command not found in \(folder)")
+            return
+        }
+
+        startingBackend = true
+        defer { startingBackend = false }
+        showToast("starting backend — first run can take a while…")
+
+        let launched: Bool = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/bin/bash")
+                proc.arguments = [script]
+                proc.currentDirectoryURL = URL(fileURLWithPath: folder)
                 do {
-                    let digest = try JSONDecoder().decode(DigestResponse.self, from: data)
-                    DispatchQueue.main.async {
-                        self.unseenEmails = digest.items
-                        self.eventCandidates = digest.items.filter { $0.eventPreview != nil && !($0.eventPreview?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
-                    }
+                    try proc.run()
+                    continuation.resume(returning: true)
                 } catch {
-                    print("Error decoding digest: \(error)")
+                    continuation.resume(returning: false)
                 }
             }
-        }.resume()
-    }
-    
-    func chatWithPix(message: String) {
-        pixMessages.append(("user", message))
-        
-        guard let url = URL(string: "http://127.0.0.1:8000/api/chat") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Pass the recent context to the LLM
-        let messages = self.pixMessages.suffix(10).map { ["role": $0.role, "content": $0.content] }
-        request.httpBody = try? JSONEncoder().encode(["messages": messages])
-        
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            if let data = data,
-               let response = try? JSONDecoder().decode(ChatResponse.self, from: data) {
-                DispatchQueue.main.async {
-                    self.pixMessages.append(("assistant", response.reply))
-                }
+        }
+        guard launched else {
+            showToast("could not launch start.command")
+            return
+        }
+
+        // Poll until the API answers (model download on first run can be slow).
+        for _ in 0..<360 {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if await api.probe() {
+                showToast("backend is up")
+                await bootstrap()
+                return
             }
-        }.resume()
-    }
-    
-    func processCalendarEvent(email: EmailItem) {
-        guard let url = URL(string: "http://127.0.0.1:8000/api/calendar-events") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONEncoder().encode(["subject": email.subject]) // Based on python backend requirements
-        
-        URLSession.shared.dataTask(with: request).resume()
-    }
-    
-    func processTodoAction(email: EmailItem) {
-        guard let url = URL(string: "http://127.0.0.1:8000/api/todos") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let payload = ["items": [["title": "Email: \(email.subject)", "source": "ui-drag-drop"]]]
-        request.httpBody = try? JSONEncoder().encode(payload)
-        
-        URLSession.shared.dataTask(with: request).resume()
-    }
-    
-    func updateTargetZone(location: CGPoint) {
-        let previousZone = targetedZone
-        
-        if let match = zoneFrames.first(where: { $0.value.contains(location) }) {
-            targetedZone = match.key
-        } else {
-            targetedZone = nil
         }
-        
-        if targetedZone != previousZone && targetedZone != nil {
-            // Haptic bump when hovering over a valid zone
-            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-        }
+        showToast("backend did not come up — check logs/ in the repo")
     }
 
-    func handleDrop(email: EmailItem, location: CGPoint) {
-        if let match = zoneFrames.first(where: { $0.value.contains(location) }) {
-            // Strong Haptic thump on successful drop
-            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .default)
-            
-            // remove from source
-            if let idx = unseenEmails.firstIndex(where: { $0.id == email.id }) {
-                unseenEmails.remove(at: idx)
-            } else if let idx = eventCandidates.firstIndex(where: { $0.id == email.id }) {
-                eventCandidates.remove(at: idx)
-            } else if let idx = actionEmails.firstIndex(where: { $0.id == email.id }) {
-                actionEmails.remove(at: idx)
-            }
-            
-            moveToDestination(type: match.key, email: email)
-        }
-        
-        // reset drag state
-        withAnimation(.spring()) {
-            draggingEmail = nil
-            dragOffset = .zero
-            targetedZone = nil
-        }
-    }
+    // MARK: - Toast
 
-    private func moveToDestination(type: DropZoneType, email: EmailItem) {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-            switch type {
-            case .seen:
-                seenEmails.append(email)
-            case .action:
-                if !actionEmails.contains(where: { $0.id == email.id }) {
-                    actionEmails.append(email)
-                    pixMessages.append(("assistant", "I've added '\(email.subject)' to your Action Items."))
-                    processTodoAction(email: email)
-                }
-            case .calendar:
-                seenEmails.append(email)
-                pixMessages.append(("assistant", "Scheduling event for '\(email.subject)'..."))
-                processCalendarEvent(email: email)
-            case .pix:
-                // Context Drop on Pix!
-                seenEmails.append(email)
-                pixMessages.append(("assistant", "Ah, I see you dropped the email: '\(email.subject)'. What would you like me to do with it?"))
-                chatWithPix(message: "Analyze the email: \(email.subject). Summary: \(email.summary)")
-            }
+    private var toastTask: Task<Void, Never>?
+
+    func showToast(_ message: String) {
+        toast = message
+        toastTask?.cancel()
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if !Task.isCancelled { self?.toast = nil }
         }
     }
 }

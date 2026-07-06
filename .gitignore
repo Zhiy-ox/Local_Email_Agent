@@ -23,6 +23,8 @@ npm-debug.log
 .build/
 .swiftpm/
 DerivedData/
+EmailAgentUI/build/
+*.xcodeproj
 
 # Packaged editor artifacts
 *.vsix
