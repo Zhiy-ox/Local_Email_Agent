@@ -1,10 +1,10 @@
-// swift-tools-version: 5.7
+// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
     name: "EmailAgentUI",
     platforms: [
-        .macOS("26.0")
+        .macOS(.v13)
     ],
     products: [
         .executable(

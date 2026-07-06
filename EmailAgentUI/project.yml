@@ -5,7 +5,7 @@ targets:
   EmailAgentUI:
     type: application
     platform: macOS
-    deploymentTarget: "14.0"
+    deploymentTarget: "13.0"
     sources:
       - Sources
     settings:

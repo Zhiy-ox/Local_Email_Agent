@@ -1,12 +1,23 @@
 {
-  "_comment": "Copy to config.json and edit. Env vars (LLM_BACKEND, LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, LLM_TIMEOUT) override these.",
+  "_comment": "Copy to config.json and edit (start.command does this automatically on first run). Env vars (LLM_BACKEND, LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, LLM_TIMEOUT, AGENT_*) override these values.",
+
+  "_model_note": "For MLX, set llm.model to the exact Hugging Face repo id of your local 4-bit build (e.g. an mlx-community Qwen 4bit model). start.command launches mlx_lm.server with this model.",
 
   "llm": {
     "backend": "mlx",
     "base_url": "http://127.0.0.1:8080",
-    "model": "mlx-community/Llama-3.2-3B-Instruct-4bit",
+    "model": "mlx-community/Qwen3-4B-Instruct-2507-4bit",
     "api_key": "",
     "timeout": [10, 180]
+  },
+
+  "agent": {
+    "timezone": "Europe/London",
+    "confidence_threshold": 0.85,
+    "max_unread": 10,
+    "max_body_chars": 5000,
+    "send_digest_email": true,
+    "digest_to": "wolf6966@ox.ac.uk"
   },
 
   "_examples": {
